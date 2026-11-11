@@ -6,7 +6,8 @@ async function setup() {
   createCanvas(windowWidth, windowHeight);
 
   song = await loadSound("assets/track.wav");
-  fft = new p5.FFT(0.8, 512);
+  fft = new p5.FFT(512);
+  fft.setInput(song);
 }
 
 function draw() {
@@ -16,9 +17,9 @@ function draw() {
     return;
   }
 
-  fft.analyze();
-  let bass = fft.getEnergy("bass");
-  let size = map(bass, 0, 255, 60, 260);
+  let spectrum = fft.analyze();
+  let bass = getEnergyRange(spectrum, 0, 12);
+  let size = map(bass, 0, 0.5, 60, 260, true);
 
   //test circle for audio reaction
   noFill();
@@ -36,6 +37,19 @@ function draw() {
   }
 }
 
+//average energy for frequency range
+function getEnergyRange(spectrum, startIdx, endIdx) {
+  let sum = 0;
+  let count = 0;
+
+  for (let i = startIdx; i <= endIdx && i < spectrum.length; i++) {
+    sum += spectrum[i];
+    count++;
+  }
+
+  return count > 0 ? sum / count : 0;
+}
+
 //play and pause on click
 function mousePressed() {
   if (!song) {
@@ -49,7 +63,8 @@ function mousePressed() {
   if (song.isPlaying()) {
     song.pause();
   } else {
-    song.loop();
+    song.loop(true);
+    song.play();
   }
 }
 
