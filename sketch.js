@@ -150,7 +150,8 @@ function spawnWaveLine(energy, hueShift) {
     weight: isHuge ? random(2.5, 4.5) : random(1.5, 2.8),
     noiseSeed: random(1000),
     hue: (hueVal + 360) % 360,
-    alpha: 95
+    alpha: 95,
+    trail: []
   });
 }
 
@@ -160,6 +161,15 @@ function updateWaveLines(wave) {
 
   for (let i = waveLines.length - 1; i >= 0; i--) {
     let w = waveLines[i];
+
+    //save recent positions to draw fading motion echoes
+    if (frameCount % 2 === 0) {
+      w.trail.push({ x: w.x, y: w.y, angle: w.angle });
+      if (w.trail.length > 10) {
+        w.trail.shift();
+      }
+    }
+
     w.x += w.vx;
     w.y += w.vy;
     w.angle += w.spin;
@@ -177,6 +187,21 @@ function updateWaveLines(wave) {
 }
 
 function drawWaveSegment(w, wave) {
+  //draw duplicated echo trail behind the moving wave
+  for (let i = 0; i < w.trail.length; i++) {
+    let past = w.trail[i];
+    let ratio = (i + 1) / (w.trail.length + 1);
+    let trailHue = (w.hue + (w.trail.length - i) * 7) % 360;
+
+    push();
+    translate(past.x, past.y);
+    rotate(past.angle);
+    stroke(trailHue, 85, 95, w.alpha * ratio * 0.42);
+    strokeWeight(w.weight * 0.85);
+    drawWaveShape(w, wave);
+    pop();
+  }
+
   push();
   translate(w.x, w.y);
   rotate(w.angle);
