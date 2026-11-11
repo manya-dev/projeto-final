@@ -1,33 +1,20 @@
 let song;
 let fft;
 
-//layers for aura trail feedback
-let trailLayer;
-let prevLayer;
-
-let smoothBass = 0;
-let smoothMid = 0;
-let smoothTreble = 0;
-let centerX = 0;
-let centerY = 0;
-let hueOffset = 0;
+let bass = 0;
+let mid = 0;
+let treble = 0;
+let bassAvg = 0;
+let beatCooldown = 0;
+let isBeat = false;
 
 //load default audio
 async function setup() {
   createCanvas(windowWidth, windowHeight);
-  pixelDensity(1);
-  colorMode(HSB, 360, 100, 100, 100);
-
-  trailLayer = createGraphics(width, height);
-  trailLayer.colorMode(HSB, 360, 100, 100, 100);
-  prevLayer = createGraphics(width, height);
-  prevLayer.colorMode(HSB, 360, 100, 100, 100);
-
-  centerX = width / 2;
-  centerY = height / 2;
 
   song = await loadSound("assets/track.wav");
   fft = new p5.FFT(512);
+  fft.analyzer.smoothing = 0.35;
   fft.setInput(song);
 }
 
@@ -38,47 +25,24 @@ function draw() {
     return;
   }
 
-  let spectrum = fft.analyze();
-  let wave = fft.waveform();
+  updateAudioBands();
 
-  //get bass, mid and treble energy
-  let rawBass = getEnergyRange(spectrum, 1, 5);
-  let rawMid = getEnergyRange(spectrum, 6, 28);
-  let rawTreble = getEnergyRange(spectrum, 35, 140);
+  //test circles for bass, mid, treble and beat
+  noFill();
+  strokeWeight(2);
 
-  smoothBass = lerp(smoothBass, map(rawBass, 0.02, 0.35, 0, 1, true), 0.35);
-  smoothMid = lerp(smoothMid, map(rawMid, 0.01, 0.25, 0, 1, true), 0.25);
-  smoothTreble = lerp(smoothTreble, map(rawTreble, 0.005, 0.12, 0, 1, true), 0.25);
+  stroke(isBeat ? 255 : 120, 220, 255);
+  circle(width / 2 - 140, height / 2, map(bass, 0, 1, 30, 140));
 
-  //drifting center so nothing stays fixed
-  let driftX = map(noise(frameCount * 0.004), 0, 1, -width * 0.12, width * 0.12);
-  let driftY = map(noise(frameCount * 0.004 + 50), 0, 1, -height * 0.12, height * 0.12);
-  let targetX = width / 2 + driftX;
-  let targetY = height / 2 + driftY;
+  stroke(120, 255, 180);
+  circle(width / 2, height / 2, map(mid, 0, 1, 30, 140));
 
-  if (mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height) {
-    targetX = lerp(targetX, mouseX, 0.35);
-    targetY = lerp(targetY, mouseY, 0.35);
-  }
-
-  centerX = lerp(centerX, targetX, 0.06);
-  centerY = lerp(centerY, targetY, 0.06);
-
-  if (song.isPlaying()) {
-    hueOffset = (hueOffset + 0.4 + smoothTreble * 2.2) % 360;
-  }
-
-  drawTunnelWave(wave);
-
-  image(trailLayer, 0, 0);
-
-  //save frame for next feedback step
-  prevLayer.clear();
-  prevLayer.image(trailLayer, 0, 0);
+  stroke(255, 120, 220);
+  circle(width / 2 + 140, height / 2, map(treble, 0, 1, 30, 140));
 
   if (!song.isPlaying()) {
     noStroke();
-    fill(0, 0, 100, 70);
+    fill(255, 180);
     textFont("Courier New");
     textAlign(CENTER);
     textSize(16);
@@ -86,76 +50,40 @@ function draw() {
   }
 }
 
-//mode 1: radial wave and tunnel trail
-function drawTunnelWave(wave) {
-  let zoom = 1.025 + smoothBass * 0.055;
-  let fadeAlpha = song.isPlaying() ? 88 : 80;
+//split spectrum into bass, mid, treble and detect beat
+function updateAudioBands() {
+  let spectrum = fft.analyze();
 
-  trailLayer.clear();
-  trailLayer.push();
-  trailLayer.blendMode(BLEND);
-  trailLayer.imageMode(CORNER);
-  trailLayer.tint(0, 0, 100, fadeAlpha);
-  trailLayer.translate(centerX, centerY);
-  trailLayer.scale(zoom);
-  trailLayer.rotate(sin(frameCount * 0.01) * 0.008);
-  trailLayer.image(prevLayer, -centerX, -centerY);
-  trailLayer.pop();
+  let rawBass = sqrt(getPeakEnergy(spectrum, 1, 5));
+  let rawMid = sqrt(getPeakEnergy(spectrum, 6, 32));
+  let rawTreble = sqrt(getPeakEnergy(spectrum, 35, 180));
 
-  trailLayer.push();
-  trailLayer.blendMode(ADD);
-  trailLayer.translate(centerX, centerY);
+  bass = map(rawBass, 0.2, 0.48, 0, 1, true);
+  mid = map(rawMid, 0.08, 0.25, 0, 1, true);
+  treble = map(rawTreble, 0.015, 0.08, 0, 1, true);
 
-  //soft colored aura glow in the center
-  let auraHue = (hueOffset + 320) % 360;
-  let auraSize = min(width, height) * (0.22 + smoothBass * 0.28);
-  trailLayer.noStroke();
-  trailLayer.fill(auraHue, 85, 80, 12 + smoothBass * 18);
-  trailLayer.circle(0, 0, auraSize * 1.6);
-  trailLayer.fill((auraHue + 50) % 360, 75, 95, 10 + smoothMid * 15);
-  trailLayer.circle(0, 0, auraSize);
-
-  //outer and inner waveform rings
-  let baseRadius = min(width, height) * (0.12 + smoothBass * 0.09);
-  let waveAmp = min(width, height) * (0.04 + smoothMid * 0.14);
-
-  drawWaveRing(trailLayer, wave, baseRadius, waveAmp, hueOffset, 2.2, 85);
-  drawWaveRing(trailLayer, wave, baseRadius * 0.88, waveAmp * 0.7, (hueOffset + 140) % 360, 1.3, 60);
-
-  trailLayer.blendMode(BLEND);
-  trailLayer.pop();
-}
-
-//closed circular waveform
-function drawWaveRing(layer, wave, radius, amp, hueVal, weight, alphaVal) {
-  layer.noFill();
-  layer.stroke(hueVal, 80, 100, alphaVal);
-  layer.strokeWeight(weight);
-  layer.beginShape();
-
-  let step = 4;
-  for (let i = 0; i < wave.length; i += step) {
-    let angle = map(i, 0, wave.length, 0, TWO_PI);
-    let r = radius + wave[i] * amp;
-    let x = cos(angle) * r;
-    let y = sin(angle) * r;
-    layer.vertex(x, y);
+  bassAvg = lerp(bassAvg, bass, 0.12);
+  if (beatCooldown > 0) {
+    beatCooldown--;
   }
 
-  layer.endShape(CLOSE);
+  isBeat = bass > bassAvg * 1.15 && bass > 0.25 && beatCooldown === 0;
+  if (isBeat) {
+    beatCooldown = 8;
+  }
 }
 
-//average energy for frequency range
-function getEnergyRange(spectrum, startIdx, endIdx) {
-  let sum = 0;
-  let count = 0;
+//peak energy in frequency range
+function getPeakEnergy(spectrum, startIdx, endIdx) {
+  let peak = 0;
 
   for (let i = startIdx; i <= endIdx && i < spectrum.length; i++) {
-    sum += spectrum[i];
-    count++;
+    if (spectrum[i] > peak) {
+      peak = spectrum[i];
+    }
   }
 
-  return count > 0 ? sum / count : 0;
+  return peak;
 }
 
 //play and pause on click
@@ -178,9 +106,4 @@ function mousePressed() {
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
-
-  trailLayer = createGraphics(width, height);
-  trailLayer.colorMode(HSB, 360, 100, 100, 100);
-  prevLayer = createGraphics(width, height);
-  prevLayer.colorMode(HSB, 360, 100, 100, 100);
 }
