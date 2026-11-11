@@ -26,6 +26,7 @@ let bgBright = 8;
 
 let auras = [];
 let waveLines = [];
+let sparks = [];
 
 //load default audio
 async function setup() {
@@ -60,6 +61,7 @@ function draw() {
 
   updateAuras();
   updateWaveLines(wave);
+  updateSparks();
 
   if (!song.isPlaying()) {
     noStroke();
@@ -71,30 +73,33 @@ function draw() {
   }
 }
 
-//lower tiers never block main beats; dominant band decides the visual style
+//each frequency band drives a distinct visual element
 function handleAudioPriority() {
-  //priority 1: main beat always triggers, style depends on bass vs treble
+  //bass beat -> deep large auras (+ big wave if strong)
   if (isBeat) {
     if (bass >= treble * 0.9) {
       spawnAuraBurst(1, 280, min(width, height) * 0.85, 0.58);
-      spawnWaveLine(max(bass, waveEnergy), 0, true);
+      if (mid > 0.3 || bass > 0.65) {
+        spawnWaveLine(max(mid, waveEnergy), 90, true);
+      }
     } else {
-      spawnAuraBurst(1, 180, 420, 0.55);
-      spawnWaveLine(max(treble, waveEnergy), 140, false);
+      //bright/snare beat -> mid wave + spark burst
+      spawnWaveLine(max(treble, waveEnergy), 150, false);
+      spawnSparks(random(width * 0.15, width * 0.85), random(height * 0.15, height * 0.85), 6);
     }
     return;
   }
 
-  //priority 2: extra treble accent only between beats
-  if (isTrebleHit && beatCooldown < 6 && treble > 0.5) {
-    spawnWaveLine(treble * 0.85, 190, false);
+  //treble accent between beats -> light sparks only
+  if (isTrebleHit && beatCooldown < 6 && treble > 0.45) {
+    spawnSparks(random(width * 0.15, width * 0.85), random(height * 0.15, height * 0.85), 5);
   }
 }
 
-//spawn stretched blurred auras on beat
+//spawn stretched blurred auras on bass beats (deep warm/violet hues)
 function spawnAuraBurst(count, minSize, maxSize, alphaMax) {
   for (let i = 0; i < count; i++) {
-    let baseHue = (frameCount * 2.5 + random(-70, 70)) % 360;
+    let baseHue = (230 + random(130) + sin(frameCount * 0.01) * 30) % 360;
     let baseSize = random(minSize, maxSize) * map(bass, 0.2, 1, 0.85, 1.35, true);
 
     auras.push({
@@ -283,6 +288,63 @@ function drawWavePoints(pts) {
     vertex(pts[i].x, pts[i].y);
   }
   endShape();
+}
+
+//treble sparks: small bright particles with short trails
+function spawnSparks(cx, cy, count) {
+  let baseHue = random(160, 310);
+
+  for (let i = 0; i < count; i++) {
+    let angle = random(TWO_PI);
+    let speed = random(2.5, 7) * (0.6 + treble);
+
+    sparks.push({
+      x: cx,
+      y: cy,
+      px: cx,
+      py: cy,
+      vx: cos(angle) * speed,
+      vy: sin(angle) * speed,
+      size: random(3, 8),
+      hue: (baseHue + random(-25, 25) + 360) % 360,
+      alpha: 95
+    });
+
+    if (sparks.length > 40) {
+      sparks.shift();
+    }
+  }
+}
+
+function updateSparks() {
+  blendMode(ADD);
+
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    let s = sparks[i];
+    s.px = s.x;
+    s.py = s.y;
+    s.x += s.vx;
+    s.y += s.vy;
+    s.vx *= 0.96;
+    s.vy *= 0.96;
+    s.alpha -= 2.8;
+
+    if (s.alpha <= 0) {
+      sparks.splice(i, 1);
+      continue;
+    }
+
+    //short streak + bright dot
+    stroke(s.hue, 70, 100, s.alpha * 0.7);
+    strokeWeight(s.size * 0.45);
+    line(s.px, s.py, s.x, s.y);
+
+    noStroke();
+    fill(s.hue, 35, 100, s.alpha);
+    circle(s.x, s.y, s.size);
+  }
+
+  blendMode(BLEND);
 }
 
 //adaptive bands and spectral flux beat detection
