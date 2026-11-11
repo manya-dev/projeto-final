@@ -133,15 +133,22 @@ function drawBlurredAura(a) {
 //spawn glowing waveform line at random place and angle
 function spawnWaveLine(energy, hueShift) {
   let hueVal = (frameCount * 2.5 + hueShift + random(-35, 35)) % 360;
+  let bigScreen = max(width, height);
+  let isHuge = random() < 0.35;
+  let len = isHuge ? random(bigScreen * 0.7, bigScreen * 1.15) : random(140, 420);
+
   waveLines.push({
-    x: random(width * 0.12, width * 0.88),
-    y: random(height * 0.12, height * 0.88),
-    vx: random(-1.5, 1.5),
-    vy: random(-1.5, 1.5),
+    x: random(width * 0.1, width * 0.9),
+    y: random(height * 0.1, height * 0.9),
+    vx: random(-3.2, 3.2),
+    vy: random(-3.2, 3.2),
     angle: random(TWO_PI),
-    spin: random(-0.012, 0.012),
-    length: random(180, min(width, height) * 0.72),
-    amp: map(energy, 0.2, 1, 35, 140, true),
+    spin: random(-0.028, 0.028),
+    length: len,
+    amp: map(energy, 0.2, 1, 50, isHuge ? 220 : 140, true),
+    bend: random(45, isHuge ? 180 : 110),
+    weight: isHuge ? random(2.5, 4.5) : random(1.5, 2.8),
+    noiseSeed: random(1000),
     hue: (hueVal + 360) % 360,
     alpha: 95
   });
@@ -156,7 +163,7 @@ function updateWaveLines(wave) {
     w.x += w.vx;
     w.y += w.vy;
     w.angle += w.spin;
-    w.alpha -= 2.2;
+    w.alpha -= 1.6;
 
     if (w.alpha <= 0) {
       waveLines.splice(i, 1);
@@ -176,24 +183,30 @@ function drawWaveSegment(w, wave) {
 
   //outer glow stroke
   stroke(w.hue, 90, 100, w.alpha * 0.3);
-  strokeWeight(7);
+  strokeWeight(w.weight * 3.5);
   drawWaveShape(w, wave);
 
   //bright core stroke
   stroke(w.hue, 45, 100, w.alpha);
-  strokeWeight(2);
+  strokeWeight(w.weight);
   drawWaveShape(w, wave);
 
   pop();
 }
 
 function drawWaveShape(w, wave) {
-  let step = 8;
+  let step = 6;
+  let tMotion = frameCount * 0.04;
   beginShape();
   for (let i = 0; i < wave.length; i += step) {
-    let px = map(i, 0, wave.length - 1, -w.length / 2, w.length / 2);
-    let fadeEnds = sin(map(i, 0, wave.length - 1, 0, PI));
-    let py = wave[i] * w.amp * fadeEnds;
+    let t = i / (wave.length - 1);
+    let fadeEnds = sin(t * PI);
+
+    //organic curve and noise distortion along the line
+    let bendCurve = sin(t * TWO_PI + tMotion + w.noiseSeed) * w.bend * (0.45 + bass);
+    let noiseWarp = map(noise(w.noiseSeed + t * 3, tMotion), 0, 1, -1, 1) * w.bend * (0.6 + mid);
+    let px = map(t, 0, 1, -w.length / 2, w.length / 2) + noiseWarp * 0.35 * fadeEnds;
+    let py = (wave[i] * w.amp + bendCurve + noiseWarp) * fadeEnds;
     vertex(px, py);
   }
   endShape();
