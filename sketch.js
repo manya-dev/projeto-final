@@ -4,9 +4,13 @@ let fft;
 let bass = 0;
 let mid = 0;
 let treble = 0;
+let bassAvg = 0;
 let prevBass = 0;
+let prevTreble = 0;
 let beatCooldown = 0;
+let hatCooldown = 0;
 let isBeat = false;
+let isTrebleHit = false;
 
 let auras = [];
 
@@ -33,8 +37,13 @@ function draw() {
 
   updateAudioBands();
 
-  if (song.isPlaying() && isBeat) {
-    spawnAuraBurst();
+  if (song.isPlaying()) {
+    if (isBeat) {
+      spawnAuraBurst(2, 180, min(width, height) * 0.48, 0.55);
+    }
+    if (isTrebleHit) {
+      spawnAuraBurst(2, 90, 220, 0.65);
+    }
   }
 
   updateAuras();
@@ -50,40 +59,40 @@ function draw() {
 }
 
 //spawn stretched blurred auras on beat
-function spawnAuraBurst() {
-  let count = bass > 0.7 ? 2 : 1;
+function spawnAuraBurst(count, minSize, maxSize, alphaMax) {
   for (let i = 0; i < count; i++) {
-    let baseHue = (frameCount * 2 + random(-50, 50)) % 360;
-    let baseSize = random(80, min(width, height) * 0.45) * map(bass, 0.25, 1, 0.7, 1.35, true);
+    let baseHue = (frameCount * 2.5 + random(-70, 70)) % 360;
+    let baseSize = random(minSize, maxSize) * map(bass, 0.2, 1, 0.85, 1.35, true);
 
     auras.push({
       x: random(width),
       y: random(height),
-      vx: random(-1.2, 1.2),
-      vy: random(-1.2, 1.2),
+      vx: random(-1.4, 1.4),
+      vy: random(-1.4, 1.4),
       angle: random(TWO_PI),
       spin: random(-0.015, 0.015),
-      rx: baseSize * 0.3,
-      ry: baseSize * 0.3,
-      targetRx: baseSize * random(0.6, 1.7),
+      rx: baseSize * 0.25,
+      ry: baseSize * 0.25,
+      targetRx: baseSize * random(0.6, 1.8),
       targetRy: baseSize * random(0.4, 1.2),
       hue: (baseHue + 360) % 360,
-      alpha: random(0.35, 0.65)
+      alpha: random(alphaMax * 0.65, alphaMax)
     });
   }
 }
 
 function updateAuras() {
   blendMode(ADD);
+  let pulse = 1 + bass * 0.22;
 
   for (let i = auras.length - 1; i >= 0; i--) {
     let a = auras[i];
     a.x += a.vx;
     a.y += a.vy;
     a.angle += a.spin;
-    a.rx = lerp(a.rx, a.targetRx, 0.12);
-    a.ry = lerp(a.ry, a.targetRy, 0.12);
-    a.alpha -= 0.012;
+    a.rx = lerp(a.rx, a.targetRx * pulse, 0.14);
+    a.ry = lerp(a.ry, a.targetRy * pulse, 0.14);
+    a.alpha -= 0.0085;
 
     if (a.alpha <= 0) {
       auras.splice(i, 1);
@@ -128,18 +137,27 @@ function updateAudioBands() {
   mid = map(rawMid, 0.08, 0.25, 0, 1, true);
   treble = map(rawTreble, 0.015, 0.08, 0, 1, true);
 
+  bassAvg = lerp(bassAvg, bass, 0.14);
   if (beatCooldown > 0) {
     beatCooldown--;
   }
+  if (hatCooldown > 0) {
+    hatCooldown--;
+  }
 
-  //trigger when bass jumps up sharply
-  let bassJump = bass - prevBass;
-  isBeat = bassJump > 0.07 && bass > 0.28 && beatCooldown === 0;
+  //trigger on bass hits and treble accents
+  isBeat = (bass - prevBass > 0.04 || bass > bassAvg + 0.06) && bass > 0.25 && beatCooldown === 0;
   if (isBeat) {
-    beatCooldown = 10;
+    beatCooldown = 12;
+  }
+
+  isTrebleHit = treble - prevTreble > 0.12 && treble > 0.25 && hatCooldown === 0;
+  if (isTrebleHit) {
+    hatCooldown = 10;
   }
 
   prevBass = bass;
+  prevTreble = treble;
 }
 
 //peak energy in frequency range
