@@ -4,13 +4,17 @@ let fft;
 let bass = 0;
 let mid = 0;
 let treble = 0;
-let bassAvg = 0;
-let prevBass = 0;
+let waveEnergy = 0;
+let energyAvg = 0;
+let prevEnergy = 0;
 let prevTreble = 0;
 let beatCooldown = 0;
 let hatCooldown = 0;
 let isBeat = false;
 let isTrebleHit = false;
+
+let bgHue = 260;
+let bgBright = 8;
 
 let auras = [];
 let waveLines = [];
@@ -28,27 +32,30 @@ async function setup() {
 }
 
 function draw() {
-  //pure black background without gray residue
-  blendMode(BLEND);
-  background(0);
-
   if (!song || !fft) {
+    background(0);
     return;
   }
 
-  updateAudioBands();
   let wave = fft.waveform();
+  updateAudioBands(wave);
 
   if (song.isPlaying()) {
+    bgHue = (bgHue + 0.12 + mid * 0.35) % 360;
     if (isBeat) {
       spawnAuraBurst(2, 260, min(width, height) * 0.85, 0.58);
-      spawnWaveLine(bass, 0);
+      spawnWaveLine(max(bass, waveEnergy), 0);
     }
     if (isTrebleHit) {
       spawnAuraBurst(2, 160, 420, 0.65);
       spawnWaveLine(treble, 160);
     }
   }
+
+  //soft dark tinted background without harsh flashing
+  bgBright = lerp(bgBright, 7 + bass * 6, 0.08);
+  blendMode(BLEND);
+  background(bgHue, 55, bgBright);
 
   updateAuras();
   updateWaveLines(wave);
@@ -237,8 +244,8 @@ function drawWaveShape(w, wave) {
   endShape();
 }
 
-//split spectrum into bass, mid, treble and detect beat onset
-function updateAudioBands() {
+//split spectrum into bands and detect beats from instant waveform energy
+function updateAudioBands(wave) {
   let spectrum = fft.analyze();
 
   let rawBass = sqrt(getPeakEnergy(spectrum, 1, 5));
@@ -249,7 +256,15 @@ function updateAudioBands() {
   mid = map(rawMid, 0.08, 0.25, 0, 1, true);
   treble = map(rawTreble, 0.015, 0.08, 0, 1, true);
 
-  bassAvg = lerp(bassAvg, bass, 0.14);
+  //instant RMS volume from waveform (zero smoothing lag)
+  let sumSq = 0;
+  for (let i = 0; i < wave.length; i += 4) {
+    sumSq += wave[i] * wave[i];
+  }
+  let rms = sqrt(sumSq / (wave.length / 4));
+  waveEnergy = map(rms, 0.05, 0.3, 0, 1, true);
+  energyAvg = lerp(energyAvg, waveEnergy, 0.08);
+
   if (beatCooldown > 0) {
     beatCooldown--;
   }
@@ -257,18 +272,18 @@ function updateAudioBands() {
     hatCooldown--;
   }
 
-  //trigger on bass hits and treble accents
-  isBeat = (bass - prevBass > 0.04 || bass > bassAvg + 0.06) && bass > 0.25 && beatCooldown === 0;
+  //trigger on sharp energy peaks in sync with beats
+  isBeat = waveEnergy > energyAvg * 1.22 && waveEnergy - prevEnergy > 0.08 && waveEnergy > 0.35 && beatCooldown === 0;
   if (isBeat) {
-    beatCooldown = 12;
+    beatCooldown = 16;
   }
 
-  isTrebleHit = treble - prevTreble > 0.12 && treble > 0.25 && hatCooldown === 0;
+  isTrebleHit = treble - prevTreble > 0.14 && treble > 0.3 && hatCooldown === 0;
   if (isTrebleHit) {
     hatCooldown = 10;
   }
 
-  prevBass = bass;
+  prevEnergy = waveEnergy;
   prevTreble = treble;
 }
 
