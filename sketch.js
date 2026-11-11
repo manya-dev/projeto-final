@@ -13,6 +13,7 @@ let isBeat = false;
 let isTrebleHit = false;
 
 let auras = [];
+let waveLines = [];
 
 //load default audio
 async function setup() {
@@ -36,17 +37,21 @@ function draw() {
   }
 
   updateAudioBands();
+  let wave = fft.waveform();
 
   if (song.isPlaying()) {
     if (isBeat) {
       spawnAuraBurst(2, 180, min(width, height) * 0.48, 0.55);
+      spawnWaveLine(bass, 0);
     }
     if (isTrebleHit) {
       spawnAuraBurst(2, 90, 220, 0.65);
+      spawnWaveLine(treble, 160);
     }
   }
 
   updateAuras();
+  updateWaveLines(wave);
 
   if (!song.isPlaying()) {
     noStroke();
@@ -123,6 +128,75 @@ function drawBlurredAura(a) {
   ctx.arc(0, 0, 1, 0, TWO_PI);
   ctx.fill();
   ctx.restore();
+}
+
+//spawn glowing waveform line at random place and angle
+function spawnWaveLine(energy, hueShift) {
+  let hueVal = (frameCount * 2.5 + hueShift + random(-35, 35)) % 360;
+  waveLines.push({
+    x: random(width * 0.12, width * 0.88),
+    y: random(height * 0.12, height * 0.88),
+    vx: random(-1.5, 1.5),
+    vy: random(-1.5, 1.5),
+    angle: random(TWO_PI),
+    spin: random(-0.012, 0.012),
+    length: random(180, min(width, height) * 0.72),
+    amp: map(energy, 0.2, 1, 35, 140, true),
+    hue: (hueVal + 360) % 360,
+    alpha: 95
+  });
+}
+
+function updateWaveLines(wave) {
+  blendMode(ADD);
+  noFill();
+
+  for (let i = waveLines.length - 1; i >= 0; i--) {
+    let w = waveLines[i];
+    w.x += w.vx;
+    w.y += w.vy;
+    w.angle += w.spin;
+    w.alpha -= 2.2;
+
+    if (w.alpha <= 0) {
+      waveLines.splice(i, 1);
+      continue;
+    }
+
+    drawWaveSegment(w, wave);
+  }
+
+  blendMode(BLEND);
+}
+
+function drawWaveSegment(w, wave) {
+  push();
+  translate(w.x, w.y);
+  rotate(w.angle);
+
+  //outer glow stroke
+  stroke(w.hue, 90, 100, w.alpha * 0.3);
+  strokeWeight(7);
+  drawWaveShape(w, wave);
+
+  //bright core stroke
+  stroke(w.hue, 45, 100, w.alpha);
+  strokeWeight(2);
+  drawWaveShape(w, wave);
+
+  pop();
+}
+
+function drawWaveShape(w, wave) {
+  let step = 8;
+  beginShape();
+  for (let i = 0; i < wave.length; i += step) {
+    let px = map(i, 0, wave.length - 1, -w.length / 2, w.length / 2);
+    let fadeEnds = sin(map(i, 0, wave.length - 1, 0, PI));
+    let py = wave[i] * w.amp * fadeEnds;
+    vertex(px, py);
+  }
+  endShape();
 }
 
 //split spectrum into bass, mid, treble and detect beat onset
