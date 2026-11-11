@@ -33,7 +33,7 @@ async function setup() {
   colorMode(HSB, 360, 100, 100, 100);
   background(0);
 
-  song = await loadSound("assets/track.wav");
+  song = await loadSound("assets/tnt.mp3");
   fft = new p5.FFT(512);
   fft.analyzer.smoothing = 0.15;
   fft.setInput(song);
@@ -50,14 +50,7 @@ function draw() {
 
   if (song.isPlaying()) {
     bgHue = (bgHue + 0.12 + mid * 0.35) % 360;
-    if (isBeat) {
-      spawnAuraBurst(1, 260, min(width, height) * 0.85, 0.58);
-      spawnWaveLine(max(bass, waveEnergy), 0);
-    }
-    if (isTrebleHit) {
-      spawnAuraBurst(1, 160, 420, 0.62);
-      spawnWaveLine(treble, 160);
-    }
+    handleAudioPriority();
   }
 
   //soft dark tinted background without harsh flashing
@@ -75,6 +68,26 @@ function draw() {
     textAlign(CENTER);
     textSize(16);
     text("Click anywhere to play", width / 2, height - 30);
+  }
+}
+
+//lower tiers never block main beats; dominant band decides the visual style
+function handleAudioPriority() {
+  //priority 1: main beat always triggers, style depends on bass vs treble
+  if (isBeat) {
+    if (bass >= treble * 0.9) {
+      spawnAuraBurst(1, 280, min(width, height) * 0.85, 0.58);
+      spawnWaveLine(max(bass, waveEnergy), 0, true);
+    } else {
+      spawnAuraBurst(1, 180, 420, 0.55);
+      spawnWaveLine(max(treble, waveEnergy), 140, false);
+    }
+    return;
+  }
+
+  //priority 2: extra treble accent only between beats
+  if (isTrebleHit && beatCooldown < 6 && treble > 0.5) {
+    spawnWaveLine(treble * 0.85, 190, false);
   }
 }
 
@@ -150,11 +163,11 @@ function drawBlurredAura(a) {
 }
 
 //spawn glowing waveform line at random place and angle
-function spawnWaveLine(energy, hueShift) {
+function spawnWaveLine(energy, hueShift, allowHuge) {
   let hueVal = (frameCount * 2.5 + hueShift + random(-35, 35)) % 360;
   let bigScreen = max(width, height);
-  let isHuge = random() < 0.35;
-  let len = isHuge ? random(bigScreen * 0.7, bigScreen * 1.15) : random(140, 420);
+  let isHuge = allowHuge && random() < 0.45;
+  let len = isHuge ? random(bigScreen * 0.7, bigScreen * 1.15) : random(140, 380);
 
   waveLines.push({
     x: random(width * 0.1, width * 0.9),
