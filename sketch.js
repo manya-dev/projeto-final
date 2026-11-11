@@ -5,9 +5,15 @@ let bass = 0;
 let mid = 0;
 let treble = 0;
 let waveEnergy = 0;
-let energyAvg = 0;
-let prevEnergy = 0;
-let prevTreble = 0;
+
+let peakBass = 0.25;
+let peakMid = 0.15;
+let peakTreble = 0.06;
+let peakRms = 0.18;
+
+let prevSpectrum = [];
+let lowFluxAvg = 0;
+let highFluxAvg = 0;
 let beatCooldown = 0;
 let hatCooldown = 0;
 let isBeat = false;
@@ -25,7 +31,7 @@ async function setup() {
   colorMode(HSB, 360, 100, 100, 100);
   background(0);
 
-  song = await loadSound("assets/track.wav");
+  song = await loadSound("assets/tnt.mp3");
   fft = new p5.FFT(512);
   fft.analyzer.smoothing = 0.15;
   fft.setInput(song);
@@ -90,6 +96,10 @@ function spawnAuraBurst(count, minSize, maxSize, alphaMax) {
       hue: (baseHue + 360) % 360,
       alpha: random(alphaMax * 0.65, alphaMax)
     });
+
+    if (auras.length > 16) {
+      auras.shift();
+    }
   }
 }
 
@@ -160,6 +170,10 @@ function spawnWaveLine(energy, hueShift) {
     alpha: 95,
     trail: []
   });
+
+  if (waveLines.length > 10) {
+    waveLines.shift();
+  }
 }
 
 function updateWaveLines(wave) {
@@ -244,7 +258,7 @@ function drawWaveShape(w, wave) {
   endShape();
 }
 
-//split spectrum into bands and detect beats from instant waveform energy
+//adaptive bands and spectral flux beat detection
 function updateAudioBands(wave) {
   let spectrum = fft.analyze();
 
@@ -252,18 +266,48 @@ function updateAudioBands(wave) {
   let rawMid = sqrt(getPeakEnergy(spectrum, 6, 32));
   let rawTreble = sqrt(getPeakEnergy(spectrum, 35, 180));
 
-  bass = map(rawBass, 0.2, 0.48, 0, 1, true);
-  mid = map(rawMid, 0.08, 0.25, 0, 1, true);
-  treble = map(rawTreble, 0.015, 0.08, 0, 1, true);
-
-  //instant RMS volume from waveform (zero smoothing lag)
   let sumSq = 0;
   for (let i = 0; i < wave.length; i += 4) {
     sumSq += wave[i] * wave[i];
   }
   let rms = sqrt(sumSq / (wave.length / 4));
-  waveEnergy = map(rms, 0.05, 0.3, 0, 1, true);
-  energyAvg = lerp(energyAvg, waveEnergy, 0.08);
+
+  //auto-adjust peaks so loud or quiet tracks do not clip
+  peakBass = max(rawBass, peakBass * 0.996, 0.25);
+  peakMid = max(rawMid, peakMid * 0.996, 0.15);
+  peakTreble = max(rawTreble, peakTreble * 0.996, 0.06);
+  peakRms = max(rms, peakRms * 0.996, 0.18);
+
+  bass = constrain(rawBass / peakBass, 0, 1);
+  mid = constrain(rawMid / peakMid, 0, 1);
+  treble = constrain(rawTreble / peakTreble, 0, 1);
+  waveEnergy = constrain(rms / peakRms, 0, 1);
+
+  //measure sudden new energy across frequencies (spectral flux)
+  let lowFlux = 0;
+  let highFlux = 0;
+
+  if (prevSpectrum.length === spectrum.length) {
+    for (let i = 1; i <= 25; i++) {
+      let diff = sqrt(spectrum[i]) - prevSpectrum[i];
+      if (diff > 0) {
+        lowFlux += diff;
+      }
+    }
+    for (let i = 30; i <= 140; i++) {
+      let diff = sqrt(spectrum[i]) - prevSpectrum[i];
+      if (diff > 0) {
+        highFlux += diff;
+      }
+    }
+  }
+
+  for (let i = 0; i < spectrum.length; i++) {
+    prevSpectrum[i] = sqrt(spectrum[i]);
+  }
+
+  lowFluxAvg = lerp(lowFluxAvg, lowFlux, 0.1);
+  highFluxAvg = lerp(highFluxAvg, highFlux, 0.1);
 
   if (beatCooldown > 0) {
     beatCooldown--;
@@ -272,19 +316,15 @@ function updateAudioBands(wave) {
     hatCooldown--;
   }
 
-  //trigger on sharp energy peaks in sync with beats
-  isBeat = waveEnergy > energyAvg * 1.22 && waveEnergy - prevEnergy > 0.08 && waveEnergy > 0.35 && beatCooldown === 0;
+  isBeat = lowFlux > lowFluxAvg * 1.45 && lowFlux > 0.12 && beatCooldown === 0;
   if (isBeat) {
-    beatCooldown = 16;
+    beatCooldown = 14;
   }
 
-  isTrebleHit = treble - prevTreble > 0.14 && treble > 0.3 && hatCooldown === 0;
+  isTrebleHit = highFlux > highFluxAvg * 1.55 && highFlux > 0.2 && hatCooldown === 0;
   if (isTrebleHit) {
-    hatCooldown = 10;
+    hatCooldown = 12;
   }
-
-  prevEnergy = waveEnergy;
-  prevTreble = treble;
 }
 
 //peak energy in frequency range
