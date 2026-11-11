@@ -4,7 +4,7 @@ let fft;
 let bass = 0;
 let mid = 0;
 let treble = 0;
-let bassAvg = 0;
+let prevBass = 0;
 let beatCooldown = 0;
 let isBeat = false;
 
@@ -18,14 +18,14 @@ async function setup() {
 
   song = await loadSound("assets/track.wav");
   fft = new p5.FFT(512);
-  fft.analyzer.smoothing = 0.4;
+  fft.analyzer.smoothing = 0.35;
   fft.setInput(song);
 }
 
 function draw() {
-  //soft fade for glowing trails
+  //pure black background without gray residue
   blendMode(BLEND);
-  background(0, 0, 0, 18);
+  background(0);
 
   if (!song || !fft) {
     return;
@@ -33,8 +33,8 @@ function draw() {
 
   updateAudioBands();
 
-  if (song.isPlaying()) {
-    spawnAuras();
+  if (song.isPlaying() && isBeat) {
+    spawnAuraBurst();
   }
 
   updateAuras();
@@ -49,65 +49,74 @@ function draw() {
   }
 }
 
-//create random auras synced to sound
-function spawnAuras() {
-  if (isBeat) {
-    let count = bass > 0.75 ? 2 : 1;
-    for (let i = 0; i < count; i++) {
-      let hueVal = (frameCount * 1.5 + random(-40, 40)) % 360;
-      let maxSize = map(bass, 0.2, 1, 140, min(width, height) * 0.55);
-      auras.push(makeAura(hueVal, maxSize));
-    }
-  }
+//spawn stretched blurred auras on beat
+function spawnAuraBurst() {
+  let count = bass > 0.7 ? 2 : 1;
+  for (let i = 0; i < count; i++) {
+    let baseHue = (frameCount * 2 + random(-50, 50)) % 360;
+    let baseSize = random(80, min(width, height) * 0.45) * map(bass, 0.25, 1, 0.7, 1.35, true);
 
-  if (mid > 0.55 && random() < 0.22) {
-    let hueVal = (160 + random(-50, 70)) % 360;
-    let maxSize = map(mid, 0.4, 1, 90, 260);
-    auras.push(makeAura(hueVal, maxSize));
+    auras.push({
+      x: random(width),
+      y: random(height),
+      vx: random(-1.2, 1.2),
+      vy: random(-1.2, 1.2),
+      angle: random(TWO_PI),
+      spin: random(-0.015, 0.015),
+      rx: baseSize * 0.3,
+      ry: baseSize * 0.3,
+      targetRx: baseSize * random(0.6, 1.7),
+      targetRy: baseSize * random(0.4, 1.2),
+      hue: (baseHue + 360) % 360,
+      alpha: random(0.35, 0.65)
+    });
   }
-}
-
-function makeAura(hueVal, maxSize) {
-  return {
-    x: random(width),
-    y: random(height),
-    vx: random(-0.8, 0.8),
-    vy: random(-0.8, 0.8),
-    size: maxSize * 0.25,
-    maxSize: maxSize,
-    hue: (hueVal + 360) % 360,
-    alpha: random(22, 38)
-  };
 }
 
 function updateAuras() {
   blendMode(ADD);
-  noStroke();
 
   for (let i = auras.length - 1; i >= 0; i--) {
     let a = auras[i];
     a.x += a.vx;
     a.y += a.vy;
-    a.size = lerp(a.size, a.maxSize, 0.08);
-    a.alpha -= 0.45;
-
-    //soft layered glow
-    fill(a.hue, 85, 90, a.alpha * 0.35);
-    circle(a.x, a.y, a.size);
-    fill(a.hue, 80, 95, a.alpha * 0.55);
-    circle(a.x, a.y, a.size * 0.62);
-    fill((a.hue + 25) % 360, 60, 100, a.alpha * 0.7);
-    circle(a.x, a.y, a.size * 0.3);
+    a.angle += a.spin;
+    a.rx = lerp(a.rx, a.targetRx, 0.12);
+    a.ry = lerp(a.ry, a.targetRy, 0.12);
+    a.alpha -= 0.012;
 
     if (a.alpha <= 0) {
       auras.splice(i, 1);
+      continue;
     }
+
+    drawBlurredAura(a);
   }
 
   blendMode(BLEND);
 }
 
-//split spectrum into bass, mid, treble and detect beat
+//soft radial gradient glow
+function drawBlurredAura(a) {
+  let ctx = drawingContext;
+  ctx.save();
+  ctx.translate(a.x, a.y);
+  ctx.rotate(a.angle);
+  ctx.scale(a.rx, a.ry);
+
+  let grad = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+  grad.addColorStop(0, `hsla(${a.hue}, 95%, 65%, ${a.alpha})`);
+  grad.addColorStop(0.45, `hsla(${(a.hue + 30) % 360}, 90%, 50%, ${a.alpha * 0.45})`);
+  grad.addColorStop(1, `hsla(${a.hue}, 90%, 45%, 0)`);
+
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(0, 0, 1, 0, TWO_PI);
+  ctx.fill();
+  ctx.restore();
+}
+
+//split spectrum into bass, mid, treble and detect beat onset
 function updateAudioBands() {
   let spectrum = fft.analyze();
 
@@ -119,15 +128,18 @@ function updateAudioBands() {
   mid = map(rawMid, 0.08, 0.25, 0, 1, true);
   treble = map(rawTreble, 0.015, 0.08, 0, 1, true);
 
-  bassAvg = lerp(bassAvg, bass, 0.12);
   if (beatCooldown > 0) {
     beatCooldown--;
   }
 
-  isBeat = bass > bassAvg * 1.15 && bass > 0.25 && beatCooldown === 0;
+  //trigger when bass jumps up sharply
+  let bassJump = bass - prevBass;
+  isBeat = bassJump > 0.07 && bass > 0.28 && beatCooldown === 0;
   if (isBeat) {
-    beatCooldown = 8;
+    beatCooldown = 10;
   }
+
+  prevBass = bass;
 }
 
 //peak energy in frequency range
