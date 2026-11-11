@@ -14,6 +14,8 @@ let peakRms = 0.18;
 let prevSpectrum = [];
 let lowFluxAvg = 0;
 let highFluxAvg = 0;
+let rmsAvg = 0;
+let prevRms = 0;
 let beatCooldown = 0;
 let hatCooldown = 0;
 let isBeat = false;
@@ -49,11 +51,11 @@ function draw() {
   if (song.isPlaying()) {
     bgHue = (bgHue + 0.12 + mid * 0.35) % 360;
     if (isBeat) {
-      spawnAuraBurst(2, 260, min(width, height) * 0.85, 0.58);
+      spawnAuraBurst(1, 260, min(width, height) * 0.85, 0.58);
       spawnWaveLine(max(bass, waveEnergy), 0);
     }
     if (isTrebleHit) {
-      spawnAuraBurst(2, 160, 420, 0.65);
+      spawnAuraBurst(1, 160, 420, 0.62);
       spawnWaveLine(treble, 160);
     }
   }
@@ -97,7 +99,7 @@ function spawnAuraBurst(count, minSize, maxSize, alphaMax) {
       alpha: random(alphaMax * 0.65, alphaMax)
     });
 
-    if (auras.length > 16) {
+    if (auras.length > 10) {
       auras.shift();
     }
   }
@@ -171,7 +173,7 @@ function spawnWaveLine(energy, hueShift) {
     trail: []
   });
 
-  if (waveLines.length > 10) {
+  if (waveLines.length > 7) {
     waveLines.shift();
   }
 }
@@ -288,7 +290,7 @@ function updateAudioBands(wave) {
   let highFlux = 0;
 
   if (prevSpectrum.length === spectrum.length) {
-    for (let i = 1; i <= 25; i++) {
+    for (let i = 1; i <= 20; i++) {
       let diff = sqrt(spectrum[i]) - prevSpectrum[i];
       if (diff > 0) {
         lowFlux += diff;
@@ -306,8 +308,9 @@ function updateAudioBands(wave) {
     prevSpectrum[i] = sqrt(spectrum[i]);
   }
 
-  lowFluxAvg = lerp(lowFluxAvg, lowFlux, 0.1);
-  highFluxAvg = lerp(highFluxAvg, highFlux, 0.1);
+  lowFluxAvg = lerp(lowFluxAvg, lowFlux, 0.12);
+  highFluxAvg = lerp(highFluxAvg, highFlux, 0.12);
+  rmsAvg = lerp(rmsAvg, rms, 0.08);
 
   if (beatCooldown > 0) {
     beatCooldown--;
@@ -316,15 +319,21 @@ function updateAudioBands(wave) {
     hatCooldown--;
   }
 
-  isBeat = lowFlux > lowFluxAvg * 1.45 && lowFlux > 0.12 && beatCooldown === 0;
+  //catch both spectral hits in loud parts and isolated drum hits in quiet parts
+  let fluxBeat = lowFlux > max(lowFluxAvg * 1.45, 0.025);
+  let rmsBeat = rms > max(rmsAvg * 1.5, 0.025) && rms > prevRms * 1.25;
+
+  isBeat = (fluxBeat || rmsBeat) && beatCooldown === 0;
   if (isBeat) {
-    beatCooldown = 14;
+    beatCooldown = 11;
   }
 
-  isTrebleHit = highFlux > highFluxAvg * 1.55 && highFlux > 0.2 && hatCooldown === 0;
+  isTrebleHit = highFlux > max(highFluxAvg * 1.55, 0.035) && hatCooldown === 0;
   if (isTrebleHit) {
-    hatCooldown = 12;
+    hatCooldown = 11;
   }
+
+  prevRms = rms;
 }
 
 //peak energy in frequency range
