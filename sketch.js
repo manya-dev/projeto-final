@@ -23,7 +23,7 @@ async function setup() {
 
   song = await loadSound("assets/track.wav");
   fft = new p5.FFT(512);
-  fft.analyzer.smoothing = 0.35;
+  fft.analyzer.smoothing = 0.15;
   fft.setInput(song);
 }
 
@@ -41,11 +41,11 @@ function draw() {
 
   if (song.isPlaying()) {
     if (isBeat) {
-      spawnAuraBurst(2, 180, min(width, height) * 0.48, 0.55);
+      spawnAuraBurst(2, 260, min(width, height) * 0.85, 0.58);
       spawnWaveLine(bass, 0);
     }
     if (isTrebleHit) {
-      spawnAuraBurst(2, 90, 220, 0.65);
+      spawnAuraBurst(2, 160, 420, 0.65);
       spawnWaveLine(treble, 160);
     }
   }
@@ -95,9 +95,9 @@ function updateAuras() {
     a.x += a.vx;
     a.y += a.vy;
     a.angle += a.spin;
-    a.rx = lerp(a.rx, a.targetRx * pulse, 0.14);
-    a.ry = lerp(a.ry, a.targetRy * pulse, 0.14);
-    a.alpha -= 0.0085;
+    a.rx = lerp(a.rx, a.targetRx * pulse, 0.28);
+    a.ry = lerp(a.ry, a.targetRy * pulse, 0.28);
+    a.alpha -= 0.0065;
 
     if (a.alpha <= 0) {
       auras.splice(i, 1);
