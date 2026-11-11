@@ -6,10 +6,10 @@ let mid = 0;
 let treble = 0;
 let waveEnergy = 0;
 
-let peakBass = 0.25;
-let peakMid = 0.15;
-let peakTreble = 0.06;
-let peakRms = 0.18;
+let peakBass = 0.18;
+let peakMid = 0.1;
+let peakTreble = 0.035;
+let peakRms = 0.12;
 
 let prevSpectrum = [];
 let lowFluxAvg = 0;
@@ -33,7 +33,7 @@ async function setup() {
   colorMode(HSB, 360, 100, 100, 100);
   background(0);
 
-  song = await loadSound("assets/tnt.mp3");
+  song = await loadSound("assets/track.wav");
   fft = new p5.FFT(512);
   fft.analyzer.smoothing = 0.15;
   fft.setInput(song);
@@ -164,9 +164,9 @@ function spawnWaveLine(energy, hueShift) {
     angle: random(TWO_PI),
     spin: random(-0.028, 0.028),
     length: len,
-    amp: map(energy, 0.2, 1, 50, isHuge ? 220 : 140, true),
-    bend: random(45, isHuge ? 180 : 110),
-    weight: isHuge ? random(2.5, 4.5) : random(1.5, 2.8),
+    amp: map(energy, 0.2, 1, 30, isHuge ? 130 : 85, true),
+    bend: random(25, isHuge ? 110 : 70),
+    weight: isHuge ? random(2, 3.6) : random(1.4, 2.4),
     noiseSeed: random(1000),
     hue: (hueVal + 360) % 360,
     alpha: 95,
@@ -186,9 +186,9 @@ function updateWaveLines(wave) {
     let w = waveLines[i];
 
     //save recent positions to draw fading motion echoes
-    if (frameCount % 2 === 0) {
+    if (frameCount % 3 === 0) {
       w.trail.push({ x: w.x, y: w.y, angle: w.angle });
-      if (w.trail.length > 10) {
+      if (w.trail.length > 6) {
         w.trail.shift();
       }
     }
@@ -210,6 +210,8 @@ function updateWaveLines(wave) {
 }
 
 function drawWaveSegment(w, wave) {
+  let pts = buildWavePoints(w, wave);
+
   //draw duplicated echo trail behind the moving wave
   for (let i = 0; i < w.trail.length; i++) {
     let past = w.trail[i];
@@ -221,7 +223,7 @@ function drawWaveSegment(w, wave) {
     rotate(past.angle);
     stroke(trailHue, 85, 95, w.alpha * ratio * 0.42);
     strokeWeight(w.weight * 0.85);
-    drawWaveShape(w, wave);
+    drawWavePoints(pts);
     pop();
   }
 
@@ -231,31 +233,41 @@ function drawWaveSegment(w, wave) {
 
   //outer glow stroke
   stroke(w.hue, 90, 100, w.alpha * 0.3);
-  strokeWeight(w.weight * 3.5);
-  drawWaveShape(w, wave);
+  strokeWeight(w.weight * 2.8);
+  drawWavePoints(pts);
 
   //bright core stroke
   stroke(w.hue, 45, 100, w.alpha);
   strokeWeight(w.weight);
-  drawWaveShape(w, wave);
+  drawWavePoints(pts);
 
   pop();
 }
 
-function drawWaveShape(w, wave) {
-  let step = 6;
-  let tMotion = frameCount * 0.04;
-  beginShape();
+//compute distorted wave vertices once per frame
+function buildWavePoints(w, wave) {
+  let pts = [];
+  let step = 32;
+  let tMotion = frameCount * 0.025;
+
   for (let i = 0; i < wave.length; i += step) {
     let t = i / (wave.length - 1);
     let fadeEnds = sin(t * PI);
 
-    //organic curve and noise distortion along the line
-    let bendCurve = sin(t * TWO_PI + tMotion + w.noiseSeed) * w.bend * (0.45 + bass);
-    let noiseWarp = map(noise(w.noiseSeed + t * 3, tMotion), 0, 1, -1, 1) * w.bend * (0.6 + mid);
-    let px = map(t, 0, 1, -w.length / 2, w.length / 2) + noiseWarp * 0.35 * fadeEnds;
+    let bendCurve = sin(t * TWO_PI + tMotion + w.noiseSeed) * w.bend * (0.4 + bass * 0.7);
+    let noiseWarp = map(noise(w.noiseSeed + t * 2.5, tMotion), 0, 1, -1, 1) * w.bend * (0.45 + mid * 0.65);
+    let px = map(t, 0, 1, -w.length / 2, w.length / 2) + noiseWarp * 0.25 * fadeEnds;
     let py = (wave[i] * w.amp + bendCurve + noiseWarp) * fadeEnds;
-    vertex(px, py);
+    pts.push({ x: px, y: py });
+  }
+
+  return pts;
+}
+
+function drawWavePoints(pts) {
+  beginShape();
+  for (let i = 0; i < pts.length; i++) {
+    vertex(pts[i].x, pts[i].y);
   }
   endShape();
 }
@@ -275,10 +287,10 @@ function updateAudioBands(wave) {
   let rms = sqrt(sumSq / (wave.length / 4));
 
   //auto-adjust peaks so loud or quiet tracks do not clip
-  peakBass = max(rawBass, peakBass * 0.996, 0.25);
-  peakMid = max(rawMid, peakMid * 0.996, 0.15);
-  peakTreble = max(rawTreble, peakTreble * 0.996, 0.06);
-  peakRms = max(rms, peakRms * 0.996, 0.18);
+  peakBass = max(rawBass, peakBass * 0.996, 0.18);
+  peakMid = max(rawMid, peakMid * 0.996, 0.1);
+  peakTreble = max(rawTreble, peakTreble * 0.996, 0.035);
+  peakRms = max(rms, peakRms * 0.996, 0.12);
 
   bass = constrain(rawBass / peakBass, 0, 1);
   mid = constrain(rawMid / peakMid, 0, 1);
@@ -319,16 +331,16 @@ function updateAudioBands(wave) {
     hatCooldown--;
   }
 
-  //catch both spectral hits in loud parts and isolated drum hits in quiet parts
-  let fluxBeat = lowFlux > max(lowFluxAvg * 1.45, 0.025);
-  let rmsBeat = rms > max(rmsAvg * 1.5, 0.025) && rms > prevRms * 1.25;
+  //catch both spectral hits in loud parts and smooth or isolated drum hits
+  let fluxBeat = lowFlux > max(lowFluxAvg * 1.32, 0.02);
+  let rmsBeat = rms > max(rmsAvg * 1.25, 0.025) && rms > prevRms * 1.07;
 
   isBeat = (fluxBeat || rmsBeat) && beatCooldown === 0;
   if (isBeat) {
     beatCooldown = 11;
   }
 
-  isTrebleHit = highFlux > max(highFluxAvg * 1.55, 0.035) && hatCooldown === 0;
+  isTrebleHit = highFlux > max(highFluxAvg * 1.4, 0.025) && hatCooldown === 0;
   if (isTrebleHit) {
     hatCooldown = 11;
   }
