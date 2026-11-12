@@ -3,6 +3,7 @@ let fft;
 let isLoadingTrack = false;
 let currentTrackName = "";
 let currentBlobUrl = null;
+let saveNextFrame = false;
 
 let bass = 0;
 let mid = 0;
@@ -146,15 +147,21 @@ function draw() {
   updateWaveLines(wave);
   updateSparks();
 
+  if (saveNextFrame) {
+    saveCanvas("audio-aura-" + frameCount, "png");
+    saveNextFrame = false;
+  }
+
   noStroke();
   fill(0, 0, 100, 75);
   textFont("Courier New");
   textAlign(CENTER);
   textSize(16);
+  let textToFill = "";
   if (!song.isPlaying()) {
-    textToFill = `${currentTrackName}  |  Click to play  |  N: next track`;
+    textToFill = `${currentTrackName}  |  Click to play  |  N: next track  |  S: save`;
   } else {
-    textToFill = `${currentTrackName}  |  Click to pause  |  N: next track`;
+    textToFill = `${currentTrackName}  |  Click to pause  |  N: next track  |  S: save`;
   }
   text(textToFill, width / 2, height - 30);
 
@@ -525,13 +532,15 @@ function mousePressed() {
   }
 }
 
-//keyboard shortcuts: N for next random track, Space for play/pause
+//keyboard shortcuts: N for next random track, S to save frame, Space for play/pause
 function keyPressed() {
   if (key === "n" || key === "N") {
     if (typeof userStartAudio === "function") {
       userStartAudio();
     }
     loadRandomTrack(true);
+  } else if (key === "s" || key === "S") {
+    saveNextFrame = true;
   } else if (key === " ") {
     mousePressed();
     return false;
