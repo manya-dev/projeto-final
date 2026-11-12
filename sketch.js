@@ -146,14 +146,18 @@ function draw() {
   updateWaveLines(wave);
   updateSparks();
 
+  noStroke();
+  fill(0, 0, 100, 75);
+  textFont("Courier New");
+  textAlign(CENTER);
+  textSize(16);
   if (!song.isPlaying()) {
-    noStroke();
-    fill(0, 0, 100, 75);
-    textFont("Courier New");
-    textAlign(CENTER);
-    textSize(16);
-    text(`${currentTrackName}  |  Click to play  |  N: next track`, width / 2, height - 30);
+    textToFill = `${currentTrackName}  |  Click to play  |  N: next track`;
+  } else {
+    textToFill = `${currentTrackName}  |  Click to pause  |  N: next track`;
   }
+  text(textToFill, width / 2, height - 30);
+
 }
 
 //volume triggers the event; band with strongest jump + level picks one visual element
