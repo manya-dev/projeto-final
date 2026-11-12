@@ -42,7 +42,71 @@ function setup() {
   fft = new p5.FFT(512);
   fft.analyzer.smoothing = 0.15;
 
+  setupDropZone();
   loadRandomTrack(false);
+}
+
+//allow dropping local audio files onto the window
+function setupDropZone() {
+  window.addEventListener("dragover", (e) => {
+    e.preventDefault();
+  });
+
+  window.addEventListener("drop", (e) => {
+    e.preventDefault();
+    if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+      loadDroppedFile(e.dataTransfer.files[0]);
+    }
+  });
+}
+
+//reset adaptive audio levels for new track
+function resetAudioLevels() {
+  peakBass = 0.18;
+  peakMid = 0.1;
+  peakTreble = 0.035;
+  peakRms = 0.1;
+  fluxAvg = 0;
+  rmsAvg = 0;
+  prevRms = 0;
+}
+
+//load dropped audio file from browser memory
+async function loadDroppedFile(file) {
+  if (!file || isLoadingTrack) {
+    return;
+  }
+
+  let isAudio = file.type.startsWith("audio/") || /\.(mp3|wav|ogg|m4a|flac)$/i.test(file.name);
+  if (!isAudio) {
+    return;
+  }
+
+  isLoadingTrack = true;
+  if (song && song.isPlaying()) {
+    song.stop();
+  }
+
+  resetAudioLevels();
+
+  try {
+    if (currentBlobUrl) {
+      URL.revokeObjectURL(currentBlobUrl);
+    }
+    currentBlobUrl = URL.createObjectURL(file);
+    song = await loadSound(currentBlobUrl);
+    fft.setInput(song);
+    currentTrackName = file.name.replace(/\.[^/.]+$/, "");
+    isLoadingTrack = false;
+
+    if (typeof userStartAudio === "function") {
+      userStartAudio();
+    }
+    song.loop(true);
+    song.play();
+  } catch (err) {
+    isLoadingTrack = false;
+  }
 }
 
 //fetch random track from Audius API with local fallback
@@ -56,14 +120,7 @@ async function loadRandomTrack(autoPlay) {
     song.stop();
   }
 
-  //reset adaptive audio levels for new track
-  peakBass = 0.18;
-  peakMid = 0.1;
-  peakTreble = 0.035;
-  peakRms = 0.1;
-  fluxAvg = 0;
-  rmsAvg = 0;
-  prevRms = 0;
+  resetAudioLevels();
 
   let loaded = false;
 
@@ -104,8 +161,8 @@ async function loadRandomTrack(autoPlay) {
   }
 
   if (!loaded) {
-    song = await loadSound("assets/track.wav");
-    currentTrackName = "Default Track";
+    song = await loadSound("assets/ophelia.mp3");
+    currentTrackName = "Ophelia";
   }
 
   fft.setInput(song);
@@ -159,9 +216,9 @@ function draw() {
   textSize(16);
   let textToFill = "";
   if (!song.isPlaying()) {
-    textToFill = `${currentTrackName}  |  Click to play  |  N: next track  |  S: save`;
+    textToFill = `${currentTrackName}  |  Click: play  |  N: next  |  S: save  |  Drop audio`;
   } else {
-    textToFill = `${currentTrackName}  |  Click to pause  |  N: next track  |  S: save`;
+    textToFill = `${currentTrackName}  |  Click: pause  |  N: next  |  S: save  |  Drop audio`;
   }
   text(textToFill, width / 2, height - 30);
 
