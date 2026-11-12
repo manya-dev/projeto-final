@@ -4,26 +4,23 @@ let fft;
 let bass = 0;
 let mid = 0;
 let treble = 0;
+let prevBass = 0;
+let prevMid = 0;
+let prevTreble = 0;
 let waveEnergy = 0;
 
 let peakBass = 0.18;
 let peakMid = 0.1;
 let peakTreble = 0.035;
-let peakRms = 0.12;
+let peakRms = 0.1;
 
 let prevSpectrum = [];
-let bassFluxAvg = 0;
-let midFluxAvg = 0;
-let trebleFluxAvg = 0;
+let fluxAvg = 0;
 let rmsAvg = 0;
 let prevRms = 0;
 
-let bassCooldown = 0;
-let midCooldown = 0;
-let hatCooldown = 0;
-let isBassHit = false;
-let isMidHit = false;
-let isTrebleHit = false;
+let hitCooldown = 0;
+let isVolumeHit = false;
 
 let bgHue = 260;
 let bgBright = 8;
@@ -38,7 +35,7 @@ async function setup() {
   colorMode(HSB, 360, 100, 100, 100);
   background(0);
 
-  song = await loadSound("assets/tnt.mp3");
+  song = await loadSound("assets/ophelia.mp3");
   fft = new p5.FFT(512);
   fft.analyzer.smoothing = 0.15;
   fft.setInput(song);
@@ -58,8 +55,8 @@ function draw() {
     handleAudioPriority();
   }
 
-  //soft dark tinted background without harsh flashing
-  bgBright = lerp(bgBright, 7 + bass * 6, 0.08);
+  //soft dark tinted background breathing with overall volume
+  bgBright = lerp(bgBright, 6 + waveEnergy * 7, 0.1);
   blendMode(BLEND);
   background(bgHue, 55, bgBright);
 
@@ -77,21 +74,23 @@ function draw() {
   }
 }
 
-//each frequency band drives its own separate visual element
+//volume triggers the event; band with strongest jump + level picks one visual element
 function handleAudioPriority() {
-  //bass (low frequencies) -> deep blurred auras only
-  if (isBassHit) {
-    spawnAuraBurst(1, 280, min(width, height) * 0.85, 0.58);
+  if (!isVolumeHit) {
+    return;
   }
 
-  //mid (melody, guitars, vocals, snare) -> distorted wave lines only
-  if (isMidHit && (!isBassHit || mid > bass * 0.8)) {
-    spawnWaveLine(max(mid, waveEnergy), 95, mid > 0.65);
-  }
+  let bassScore = bass * 0.45 + max(0, bass - prevBass) * 1.4;
+  let midScore = mid * 0.45 + max(0, mid - prevMid) * 1.4;
+  let trebleScore = treble * 0.45 + max(0, treble - prevTreble) * 1.4;
 
-  //treble (hi-hats, cymbals, bright notes) -> small bright sparks only
-  if (isTrebleHit) {
-    spawnSparks(random(width * 0.15, width * 0.85), random(height * 0.15, height * 0.85), 5);
+  if (bassScore >= midScore && bassScore >= trebleScore) {
+    spawnAuraBurst(1, 240, min(width, height) * (0.45 + waveEnergy * 0.45), 0.42 + waveEnergy * 0.22);
+  } else if (midScore >= trebleScore) {
+    spawnWaveLine(waveEnergy, 95, waveEnergy > 0.65);
+  } else {
+    let sparkCount = round(map(waveEnergy, 0, 1, 3, 9, true));
+    spawnSparks(random(width * 0.15, width * 0.85), random(height * 0.15, height * 0.85), sparkCount);
   }
 }
 
@@ -124,7 +123,7 @@ function spawnAuraBurst(count, minSize, maxSize, alphaMax) {
 
 function updateAuras() {
   blendMode(ADD);
-  let pulse = 1 + bass * 0.22;
+  let pulse = 1 + waveEnergy * 0.28;
 
   for (let i = auras.length - 1; i >= 0; i--) {
     let a = auras[i];
@@ -271,10 +270,10 @@ function buildWavePoints(w, wave) {
     let t = i / (wave.length - 1);
     let fadeEnds = sin(t * PI);
 
-    let bendCurve = sin(t * TWO_PI + tMotion + w.noiseSeed) * w.bend * (0.4 + bass * 0.7);
-    let noiseWarp = map(noise(w.noiseSeed + t * 2.5, tMotion), 0, 1, -1, 1) * w.bend * (0.45 + mid * 0.65);
+    let bendCurve = sin(t * TWO_PI + tMotion + w.noiseSeed) * w.bend * (0.35 + waveEnergy * 0.75);
+    let noiseWarp = map(noise(w.noiseSeed + t * 2.5, tMotion), 0, 1, -1, 1) * w.bend * (0.4 + mid * 0.6);
     let px = map(t, 0, 1, -w.length / 2, w.length / 2) + noiseWarp * 0.25 * fadeEnds;
-    let py = (wave[i] * w.amp + bendCurve + noiseWarp) * fadeEnds;
+    let py = (wave[i] * w.amp * (0.5 + waveEnergy * 0.9) + bendCurve + noiseWarp) * fadeEnds;
     pts.push({ x: px, y: py });
   }
 
@@ -364,35 +363,24 @@ function updateAudioBands(wave) {
   peakBass = max(rawBass, peakBass * 0.996, 0.18);
   peakMid = max(rawMid, peakMid * 0.996, 0.1);
   peakTreble = max(rawTreble, peakTreble * 0.996, 0.035);
-  peakRms = max(rms, peakRms * 0.996, 0.12);
+  peakRms = max(rms, peakRms * 0.996, 0.1);
+
+  prevBass = bass;
+  prevMid = mid;
+  prevTreble = treble;
 
   bass = constrain(rawBass / peakBass, 0, 1);
   mid = constrain(rawMid / peakMid, 0, 1);
   treble = constrain(rawTreble / peakTreble, 0, 1);
   waveEnergy = constrain(rms / peakRms, 0, 1);
 
-  //measure sudden new energy separately for bass, mid and treble
-  let bassFlux = 0;
-  let midFlux = 0;
-  let trebleFlux = 0;
-
+  //overall spectral change across audible bins
+  let flux = 0;
   if (prevSpectrum.length === spectrum.length) {
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= 140; i++) {
       let diff = sqrt(spectrum[i]) - prevSpectrum[i];
       if (diff > 0) {
-        bassFlux += diff;
-      }
-    }
-    for (let i = 6; i <= 32; i++) {
-      let diff = sqrt(spectrum[i]) - prevSpectrum[i];
-      if (diff > 0) {
-        midFlux += diff;
-      }
-    }
-    for (let i = 40; i <= 160; i++) {
-      let diff = sqrt(spectrum[i]) - prevSpectrum[i];
-      if (diff > 0) {
-        trebleFlux += diff;
+        flux += diff;
       }
     }
   }
@@ -401,36 +389,20 @@ function updateAudioBands(wave) {
     prevSpectrum[i] = sqrt(spectrum[i]);
   }
 
-  bassFluxAvg = lerp(bassFluxAvg, bassFlux, 0.12);
-  midFluxAvg = lerp(midFluxAvg, midFlux, 0.12);
-  trebleFluxAvg = lerp(trebleFluxAvg, trebleFlux, 0.12);
+  fluxAvg = lerp(fluxAvg, flux, 0.1);
   rmsAvg = lerp(rmsAvg, rms, 0.08);
 
-  if (bassCooldown > 0) {
-    bassCooldown--;
-  }
-  if (midCooldown > 0) {
-    midCooldown--;
-  }
-  if (hatCooldown > 0) {
-    hatCooldown--;
+  if (hitCooldown > 0) {
+    hitCooldown--;
   }
 
-  //independent triggers per band
-  let rmsJump = rms > max(rmsAvg * 1.3, 0.025) && rms > prevRms * 1.1;
-  isBassHit = (bassFlux > max(bassFluxAvg * 1.4, 0.018) || (rmsJump && bass >= mid)) && bassCooldown === 0;
-  if (isBassHit) {
-    bassCooldown = 14;
-  }
+  //trigger on loudness jumps (vocals, drums) or spectral bursts
+  let rmsSpike = rms > max(rmsAvg * 1.16, 0.02) && rms - prevRms > 0.006;
+  let fluxSpike = flux > max(fluxAvg * 1.25, 0.06) && rms > 0.02;
 
-  isMidHit = (midFlux > max(midFluxAvg * 1.4, 0.035) || (rmsJump && mid > bass)) && midCooldown === 0;
-  if (isMidHit) {
-    midCooldown = 14;
-  }
-
-  isTrebleHit = trebleFlux > max(trebleFluxAvg * 1.5, 0.035) && hatCooldown === 0;
-  if (isTrebleHit) {
-    hatCooldown = 12;
+  isVolumeHit = (rmsSpike || fluxSpike) && hitCooldown === 0;
+  if (isVolumeHit) {
+    hitCooldown = 8;
   }
 
   prevRms = rms;
