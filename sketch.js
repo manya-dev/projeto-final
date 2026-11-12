@@ -12,13 +12,17 @@ let peakTreble = 0.035;
 let peakRms = 0.12;
 
 let prevSpectrum = [];
-let lowFluxAvg = 0;
-let highFluxAvg = 0;
+let bassFluxAvg = 0;
+let midFluxAvg = 0;
+let trebleFluxAvg = 0;
 let rmsAvg = 0;
 let prevRms = 0;
-let beatCooldown = 0;
+
+let bassCooldown = 0;
+let midCooldown = 0;
 let hatCooldown = 0;
-let isBeat = false;
+let isBassHit = false;
+let isMidHit = false;
 let isTrebleHit = false;
 
 let bgHue = 260;
@@ -73,25 +77,20 @@ function draw() {
   }
 }
 
-//each frequency band drives a distinct visual element
+//each frequency band drives its own separate visual element
 function handleAudioPriority() {
-  //bass beat -> deep large auras (+ big wave if strong)
-  if (isBeat) {
-    if (bass >= treble * 0.9) {
-      spawnAuraBurst(1, 280, min(width, height) * 0.85, 0.58);
-      if (mid > 0.3 || bass > 0.65) {
-        spawnWaveLine(max(mid, waveEnergy), 90, true);
-      }
-    } else {
-      //bright/snare beat -> mid wave + spark burst
-      spawnWaveLine(max(treble, waveEnergy), 150, false);
-      spawnSparks(random(width * 0.15, width * 0.85), random(height * 0.15, height * 0.85), 6);
-    }
-    return;
+  //bass (low frequencies) -> deep blurred auras only
+  if (isBassHit) {
+    spawnAuraBurst(1, 280, min(width, height) * 0.85, 0.58);
   }
 
-  //treble accent between beats -> light sparks only
-  if (isTrebleHit && beatCooldown < 6 && treble > 0.45) {
+  //mid (melody, guitars, vocals, snare) -> distorted wave lines only
+  if (isMidHit && (!isBassHit || mid > bass * 0.8)) {
+    spawnWaveLine(max(mid, waveEnergy), 95, mid > 0.65);
+  }
+
+  //treble (hi-hats, cymbals, bright notes) -> small bright sparks only
+  if (isTrebleHit) {
     spawnSparks(random(width * 0.15, width * 0.85), random(height * 0.15, height * 0.85), 5);
   }
 }
@@ -167,9 +166,9 @@ function drawBlurredAura(a) {
   ctx.restore();
 }
 
-//spawn glowing waveform line at random place and angle
+//spawn distorted waveform line on mid hits (emerald, cyan, gold hues)
 function spawnWaveLine(energy, hueShift, allowHuge) {
-  let hueVal = (frameCount * 2.5 + hueShift + random(-35, 35)) % 360;
+  let hueVal = (75 + random(135) + hueShift * 0.2) % 360;
   let bigScreen = max(width, height);
   let isHuge = allowHuge && random() < 0.45;
   let len = isHuge ? random(bigScreen * 0.7, bigScreen * 1.15) : random(140, 380);
@@ -372,21 +371,28 @@ function updateAudioBands(wave) {
   treble = constrain(rawTreble / peakTreble, 0, 1);
   waveEnergy = constrain(rms / peakRms, 0, 1);
 
-  //measure sudden new energy across frequencies (spectral flux)
-  let lowFlux = 0;
-  let highFlux = 0;
+  //measure sudden new energy separately for bass, mid and treble
+  let bassFlux = 0;
+  let midFlux = 0;
+  let trebleFlux = 0;
 
   if (prevSpectrum.length === spectrum.length) {
-    for (let i = 1; i <= 20; i++) {
+    for (let i = 1; i <= 4; i++) {
       let diff = sqrt(spectrum[i]) - prevSpectrum[i];
       if (diff > 0) {
-        lowFlux += diff;
+        bassFlux += diff;
       }
     }
-    for (let i = 30; i <= 140; i++) {
+    for (let i = 6; i <= 32; i++) {
       let diff = sqrt(spectrum[i]) - prevSpectrum[i];
       if (diff > 0) {
-        highFlux += diff;
+        midFlux += diff;
+      }
+    }
+    for (let i = 40; i <= 160; i++) {
+      let diff = sqrt(spectrum[i]) - prevSpectrum[i];
+      if (diff > 0) {
+        trebleFlux += diff;
       }
     }
   }
@@ -395,29 +401,36 @@ function updateAudioBands(wave) {
     prevSpectrum[i] = sqrt(spectrum[i]);
   }
 
-  lowFluxAvg = lerp(lowFluxAvg, lowFlux, 0.12);
-  highFluxAvg = lerp(highFluxAvg, highFlux, 0.12);
+  bassFluxAvg = lerp(bassFluxAvg, bassFlux, 0.12);
+  midFluxAvg = lerp(midFluxAvg, midFlux, 0.12);
+  trebleFluxAvg = lerp(trebleFluxAvg, trebleFlux, 0.12);
   rmsAvg = lerp(rmsAvg, rms, 0.08);
 
-  if (beatCooldown > 0) {
-    beatCooldown--;
+  if (bassCooldown > 0) {
+    bassCooldown--;
+  }
+  if (midCooldown > 0) {
+    midCooldown--;
   }
   if (hatCooldown > 0) {
     hatCooldown--;
   }
 
-  //catch both spectral hits in loud parts and smooth or isolated drum hits
-  let fluxBeat = lowFlux > max(lowFluxAvg * 1.32, 0.02);
-  let rmsBeat = rms > max(rmsAvg * 1.25, 0.025) && rms > prevRms * 1.07;
-
-  isBeat = (fluxBeat || rmsBeat) && beatCooldown === 0;
-  if (isBeat) {
-    beatCooldown = 11;
+  //independent triggers per band
+  let rmsJump = rms > max(rmsAvg * 1.3, 0.025) && rms > prevRms * 1.1;
+  isBassHit = (bassFlux > max(bassFluxAvg * 1.4, 0.018) || (rmsJump && bass >= mid)) && bassCooldown === 0;
+  if (isBassHit) {
+    bassCooldown = 14;
   }
 
-  isTrebleHit = highFlux > max(highFluxAvg * 1.4, 0.025) && hatCooldown === 0;
+  isMidHit = (midFlux > max(midFluxAvg * 1.4, 0.035) || (rmsJump && mid > bass)) && midCooldown === 0;
+  if (isMidHit) {
+    midCooldown = 14;
+  }
+
+  isTrebleHit = trebleFlux > max(trebleFluxAvg * 1.5, 0.035) && hatCooldown === 0;
   if (isTrebleHit) {
-    hatCooldown = 11;
+    hatCooldown = 12;
   }
 
   prevRms = rms;
