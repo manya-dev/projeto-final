@@ -1,5 +1,8 @@
 let song;
 let fft;
+let isLoadingTrack = false;
+let currentTrackName = "";
+let currentBlobUrl = null;
 
 let bass = 0;
 let mid = 0;
@@ -29,21 +32,100 @@ let auras = [];
 let waveLines = [];
 let sparks = [];
 
-//load default audio
-async function setup() {
+//setup canvas, fft and load random online track
+function setup() {
   createCanvas(windowWidth, windowHeight);
   colorMode(HSB, 360, 100, 100, 100);
   background(0);
 
-  song = await loadSound("assets/ophelia.mp3");
   fft = new p5.FFT(512);
   fft.analyzer.smoothing = 0.15;
+
+  loadRandomTrack(false);
+}
+
+//fetch random track from Audius API with local fallback
+async function loadRandomTrack(autoPlay) {
+  if (isLoadingTrack) {
+    return;
+  }
+
+  isLoadingTrack = true;
+  if (song && song.isPlaying()) {
+    song.stop();
+  }
+
+  //reset adaptive audio levels for new track
+  peakBass = 0.18;
+  peakMid = 0.1;
+  peakTreble = 0.035;
+  peakRms = 0.1;
+  fluxAvg = 0;
+  rmsAvg = 0;
+  prevRms = 0;
+
+  let loaded = false;
+
+  try {
+    let controller = new AbortController();
+    let timer = setTimeout(() => controller.abort(), 7000);
+    let res = await fetch("https://api.audius.co/v1/tracks/trending?limit=25&app_name=audio_auras", {
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      let json = await res.json();
+      let tracks = json.data || [];
+      if (tracks.length > 0) {
+        let pick = tracks[floor(random(tracks.length))];
+        let streamUrl = `https://api.audius.co/v1/tracks/${pick.id}/stream?app_name=audio_auras`;
+
+        let audioCtrl = new AbortController();
+        let audioTimer = setTimeout(() => audioCtrl.abort(), 12000);
+        let audioRes = await fetch(streamUrl, { signal: audioCtrl.signal });
+        clearTimeout(audioTimer);
+
+        if (audioRes.ok) {
+          let blob = await audioRes.blob();
+          if (currentBlobUrl) {
+            URL.revokeObjectURL(currentBlobUrl);
+          }
+          currentBlobUrl = URL.createObjectURL(blob);
+          song = await loadSound(currentBlobUrl);
+          currentTrackName = `${pick.title} - ${pick.user ? pick.user.name : "Audius"}`;
+          loaded = true;
+        }
+      }
+    }
+  } catch (err) {
+    //fallback to local track if online request fails
+  }
+
+  if (!loaded) {
+    song = await loadSound("assets/track.wav");
+    currentTrackName = "Default Track";
+  }
+
   fft.setInput(song);
+  isLoadingTrack = false;
+
+  if (autoPlay && song) {
+    song.loop(true);
+    song.play();
+  }
 }
 
 function draw() {
-  if (!song || !fft) {
+  if (isLoadingTrack || !song || !fft) {
+    blendMode(BLEND);
     background(0);
+    noStroke();
+    fill(0, 0, 100, 75);
+    textFont("Courier New");
+    textAlign(CENTER);
+    textSize(16);
+    text("Loading random track...", width / 2, height - 30);
     return;
   }
 
@@ -70,7 +152,7 @@ function draw() {
     textFont("Courier New");
     textAlign(CENTER);
     textSize(16);
-    text("Click anywhere to play", width / 2, height - 30);
+    text(`${currentTrackName}  |  Click to play  |  N: next track`, width / 2, height - 30);
   }
 }
 
@@ -423,7 +505,7 @@ function getPeakEnergy(spectrum, startIdx, endIdx) {
 
 //play and pause on click
 function mousePressed() {
-  if (!song) {
+  if (!song || isLoadingTrack) {
     return;
   }
 
@@ -436,6 +518,19 @@ function mousePressed() {
   } else {
     song.loop(true);
     song.play();
+  }
+}
+
+//keyboard shortcuts: N for next random track, Space for play/pause
+function keyPressed() {
+  if (key === "n" || key === "N") {
+    if (typeof userStartAudio === "function") {
+      userStartAudio();
+    }
+    loadRandomTrack(true);
+  } else if (key === " ") {
+    mousePressed();
+    return false;
   }
 }
 
